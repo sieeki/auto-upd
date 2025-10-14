@@ -1,4 +1,5 @@
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import sqlite3
@@ -29,7 +30,6 @@ class SubscriptionBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
         user = update.effective_user
-        chat_id = update.effective_chat.id
         
         # Добавляем пользователя в базу
         db.add_user(
@@ -46,16 +46,22 @@ class SubscriptionBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            WELCOME_MESSAGE.format(CHANNEL_USERNAME),
-            reply_markup=reply_markup,
-            parse_mode='HTML'
-        )
+        if update.message:
+            await update.message.reply_text(
+                WELCOME_MESSAGE.format(CHANNEL_USERNAME),
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+        else:
+            await update.callback_query.message.reply_text(
+                WELCOME_MESSAGE.format(CHANNEL_USERNAME),
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
     
     async def check_subscription(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Проверка подписки на канал"""
         user = update.effective_user
-        chat_id = update.effective_chat.id
         
         try:
             # Получаем информацию о участнике канала
@@ -75,7 +81,7 @@ class SubscriptionBot:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 
                 await context.bot.send_message(
-                    chat_id=chat_id,
+                    chat_id=user.id,
                     text=SUCCESS_MESSAGE,
                     reply_markup=reply_markup,
                     parse_mode='HTML'
@@ -93,7 +99,7 @@ class SubscriptionBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await context.bot.send_message(
-                chat_id=chat_id,
+                chat_id=user.id,
                 text=NOT_SUBSCRIBED_MESSAGE.format(CHANNEL_USERNAME),
                 reply_markup=reply_markup,
                 parse_mode='HTML'
@@ -139,5 +145,9 @@ class SubscriptionBot:
 
 # Запуск бота
 if __name__ == "__main__":
+    # Для Render: используем переменную окружения PORT
+    port = int(os.environ.get('PORT', 5000))
+    
     bot = SubscriptionBot(BOT_TOKEN)
+    print(f"Starting bot on port {port}")
     bot.run()

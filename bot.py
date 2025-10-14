@@ -17,6 +17,18 @@ logger = logging.getLogger(__name__)
 # Инициализация базы данных
 db = Database()
 
+async def check_user_subscription(bot, user_id):
+    """Проверяет подписку пользователя на канал"""
+    try:
+        chat_member = await bot.get_chat_member(
+            chat_id=CHANNEL_USERNAME, 
+            user_id=user_id
+        )
+        return chat_member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        logger.error(f"Error checking subscription: {e}")
+        return False
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     user = update.effective_user
@@ -29,18 +41,48 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_name=user.last_name
     )
     
-    # Создаем клавиатуру с кнопками
-    keyboard = [
-        [InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_subscription")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Проверяем подписку сразу
+    is_subscribed = await check_user_subscription(context.bot, user.id)
     
-    await update.message.reply_text(
-        WELCOME_MESSAGE.format(CHANNEL_USERNAME),
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
+    if is_subscribed:
+        # Пользователь уже подписан
+        db.update_subscription(user.id, True)
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ Проверить подписку снова", callback_data="check_subscription")],
+            [InlineKeyboardButton("📊 Информация", callback_data="info")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_text = f"""
+🎉 Добро пожаловать!
+
+✅ Вы уже подписаны на канал {CHANNEL_USERNAME}
+
+Теперь вы можете пользоваться ботом!
+Доступные команды:
+/start - начать работу
+/info - информация о вас
+        """
+        
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+    else:
+        # Пользователь не подписан
+        keyboard = [
+            [InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_subscription")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            WELCOME_MESSAGE.format(CHANNEL_USERNAME),
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
 
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Проверка подписки на канал"""
@@ -50,19 +92,15 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.effective_user
     
     try:
-        # Получаем информацию о участнике канала
-        chat_member = await context.bot.get_chat_member(
-            chat_id=CHANNEL_USERNAME, 
-            user_id=user.id
-        )
+        is_subscribed = await check_user_subscription(context.bot, user.id)
         
-        # Проверяем статус подписки
-        if chat_member.status in ['member', 'administrator', 'creator']:
+        if is_subscribed:
             # Пользователь подписан
             db.update_subscription(user.id, True)
             
             keyboard = [
-                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu")]
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="menu")],
+                [InlineKeyboardButton("📊 Информация", callback_data="info")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -94,10 +132,15 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_data = db.get_user(user.id)
     
-    if user_data and user_data[4]:  # subscribed status
+    # Проверяем текущий статус подписки
+    is_subscribed = await check_user_subscription(context.bot, user.id)
+    
+    if is_subscribed:
         status = "✅ Подписан"
+        db.update_subscription(user.id, True)
     else:
         status = "❌ Не подписан"
+        db.update_subscription(user.id, False)
     
     info_text = f"""
 📊 Информация о вас:
@@ -110,7 +153,12 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Канал: {CHANNEL_USERNAME}
     """
     
-    await update.message.reply_text(info_text)
+    if update.message:
+        await update.message.reply_text(info_text)
+    else:
+        query = update.callback_query
+        await query.answer()
+        await query.edit_message_text(info_text)
 
 async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки меню"""
@@ -119,18 +167,43 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user = update.effective_user
     
-    # Создаем клавиатуру с кнопками
-    keyboard = [
-        [InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_subscription")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Проверяем текущий статус подписки
+    is_subscribed = await check_user_subscription(context.bot, user.id)
     
-    await query.edit_message_text(
-        WELCOME_MESSAGE.format(CHANNEL_USERNAME),
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
+    if is_subscribed:
+        # Пользователь подписан
+        keyboard = [
+            [InlineKeyboardButton("✅ Проверить подписку снова", callback_data="check_subscription")],
+            [InlineKeyboardButton("📊 Информация", callback_data="info")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        welcome_text = f"""
+🎉 Добро пожаловать!
+
+✅ Вы уже подписаны на канал {CHANNEL_USERNAME}
+
+Теперь вы можете пользоваться ботом!
+        """
+        
+        await query.edit_message_text(
+            welcome_text,
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+    else:
+        # Пользователь не подписан
+        keyboard = [
+            [InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Проверить подписку", callback_data="check_subscription")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            WELCOME_MESSAGE.format(CHANNEL_USERNAME),
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
 
 def main():
     """Основная функция запуска бота"""
@@ -142,6 +215,7 @@ def main():
     application.add_handler(CommandHandler("info", info_command))
     application.add_handler(CallbackQueryHandler(check_subscription, pattern="^check_subscription$"))
     application.add_handler(CallbackQueryHandler(menu_button, pattern="^menu$"))
+    application.add_handler(CallbackQueryHandler(info_command, pattern="^info$"))
     
     # Запускаем бота
     print("Бот запущен...")

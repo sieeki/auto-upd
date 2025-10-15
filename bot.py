@@ -244,15 +244,12 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Получаем статистику
+    total_users = db.get_user_count()
+    
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM users WHERE subscribed = 1')
     subscribed_users = cursor.fetchone()[0]
-    
     conn.close()
     
     admin_text = f"""
@@ -266,11 +263,13 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚙️ Доступные команды:
 /broadcast - рассылка сообщения
 /stats - подробная статистика
+/debug - отладочная информация
     """
     
     keyboard = [
         [InlineKeyboardButton("📢 Рассылка", callback_data="broadcast")],
         [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
+        [InlineKeyboardButton("🐛 Отладка", callback_data="debug")],
         [InlineKeyboardButton("🏠 Главное меню", callback_data="menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -286,19 +285,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # Получаем статистику
+    total_users = db.get_user_count()
+    
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM users WHERE subscribed = 1')
     subscribed_users = cursor.fetchone()[0]
     
     # Последние 5 пользователей
     cursor.execute('SELECT user_id, username, first_name, subscribed, created_at FROM users ORDER BY created_at DESC LIMIT 5')
     recent_users = cursor.fetchall()
-    
     conn.close()
     
     stats_text = f"""
@@ -419,6 +415,42 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     
     await progress_msg.edit_text(result_text)
 
+async def debug_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для отладки - показывает всех пользователей в базе"""
+    user = update.effective_user
+    
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ У вас нет доступа к этой команде")
+        return
+    
+    # Получаем всех пользователей из базы
+    all_users = db.get_all_users()
+    user_count = db.get_user_count()
+    
+    debug_text = f"""
+🔧 Отладочная информация:
+
+👥 Всего пользователей в базе: {user_count}
+📋 Список пользователей:
+"""
+    
+    # Получаем подробную информацию о каждом пользователе
+    conn = sqlite3.connect('bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id, username, first_name, subscribed FROM users')
+    detailed_users = cursor.fetchall()
+    conn.close()
+    
+    for user_data in detailed_users:
+        user_id, username, first_name, subscribed = user_data
+        status = "✅" if subscribed else "❌"
+        username_display = f"@{username}" if username else "без username"
+        name_display = first_name or "без имени"
+        
+        debug_text += f"{status} {name_display} ({username_display}) - ID: {user_id}\n"
+    
+    await update.message.reply_text(debug_text)
+
 async def admin_stats_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки статистики в админ панели"""
     query = update.callback_query
@@ -431,15 +463,12 @@ async def admin_stats_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     # Получаем статистику
+    total_users = db.get_user_count()
+    
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
-    
     cursor.execute('SELECT COUNT(*) FROM users WHERE subscribed = 1')
     subscribed_users = cursor.fetchone()[0]
-    
     conn.close()
     
     stats_text = f"""
@@ -483,43 +512,20 @@ async def admin_broadcast_button(update: Update, context: ContextTypes.DEFAULT_T
         "📢 Режим рассылки активирован. Отправьте сообщение для рассылки всем пользователям.\n\n"
         "❌ Для отмены нажмите кнопку ниже",
         reply_markup=reply_markup
-    }
+    )
+
+async def admin_debug_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик кнопки отладки в админ панели"""
+    query = update.callback_query
+    await query.answer()
     
-async def debug_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для отладки - показывает всех пользователей в базе"""
     user = update.effective_user
     
     if not is_admin(user.id):
-        await update.message.reply_text("❌ У вас нет доступа к этой команде")
+        await query.edit_message_text("❌ У вас нет доступа")
         return
     
-    # Получаем всех пользователей из базы
-    all_users = db.get_all_users()
-    user_count = db.get_user_count()
-    
-    debug_text = f"""
-🔧 Отладочная информация:
-
-👥 Всего пользователей в базе: {user_count}
-📋 Список пользователей:
-"""
-    
-    # Получаем подробную информацию о каждом пользователе
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id, username, first_name, subscribed FROM users')
-    detailed_users = cursor.fetchall()
-    conn.close()
-    
-    for user_data in detailed_users:
-        user_id, username, first_name, subscribed = user_data
-        status = "✅" if subscribed else "❌"
-        username_display = f"@{username}" if username else "без username"
-        name_display = first_name or "без имени"
-        
-        debug_text += f"{status} {name_display} ({username_display}) - ID: {user_id}\n"
-    
-    await update.message.reply_text(debug_text)
+    await debug_users(update, context)
 
 def setup_handlers(application):
     """Настройка обработчиков для бота"""
@@ -529,7 +535,7 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("cancel", cancel_broadcast))
-    application.add_handler(CommandHandler("debug", debug_users))  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
+    application.add_handler(CommandHandler("debug", debug_users))
     
     # Обработчики callback кнопок
     application.add_handler(CallbackQueryHandler(check_subscription, pattern="^check_subscription$"))
@@ -538,6 +544,7 @@ def setup_handlers(application):
     application.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel$"))
     application.add_handler(CallbackQueryHandler(admin_stats_button, pattern="^stats$"))
     application.add_handler(CallbackQueryHandler(admin_broadcast_button, pattern="^broadcast$"))
+    application.add_handler(CallbackQueryHandler(admin_debug_button, pattern="^debug$"))
     
     # Обработчик сообщений для рассылки
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast_message))

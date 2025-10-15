@@ -1,3 +1,4 @@
+from database import Database
 import logging
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup

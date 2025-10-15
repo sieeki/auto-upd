@@ -63,23 +63,23 @@ class Database:
         return user
     
     def get_all_users(self):
-    """Получение ВСЕХ пользователей из базы"""
-    conn = sqlite3.connect(self.db_name)
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT user_id FROM users')
-    users = cursor.fetchall()
-    
-    conn.close()
-    return users
+        """Получение ВСЕХ пользователей из базы"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT user_id FROM users')
+        users = cursor.fetchall()
+        
+        conn.close()
+        return users
     
     def get_user_count(self):
-    """Получение количества пользователей"""
-    conn = sqlite3.connect(self.db_name)
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT COUNT(*) FROM users')
-    count = cursor.fetchone()[0]
-    
-    conn.close()
-    return count
+        """Получение количества пользователей"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT COUNT(*) FROM users')
+        count = cursor.fetchone()[0]
+        
+        conn.close()
+        return count

@@ -4,6 +4,7 @@ import logging
 class Database:
     def __init__(self):
         self.connection = None
+        self.db_type = None
         self.connect()
         self.init_db()
     
@@ -14,14 +15,28 @@ class Database:
             database_url = os.environ.get('DATABASE_URL')
             
             if database_url:
-                # Используем PostgreSQL на Render
-                import psycopg2
-                self.connection = psycopg2.connect(database_url, sslmode='require')
-                print("✅ Подключено к PostgreSQL")
+                # Используем PostgreSQL на Render с pg8000
+                import pg8000
+                import urllib.parse
+                
+                # Парсим DATABASE_URL
+                url = urllib.parse.urlparse(database_url)
+                
+                # Подключаемся к PostgreSQL
+                self.connection = pg8000.connect(
+                    host=url.hostname,
+                    port=url.port,
+                    user=url.username,
+                    password=url.password,
+                    database=url.path[1:]  # Убираем первый символ '/'
+                )
+                self.db_type = 'postgresql'
+                print("✅ Подключено к PostgreSQL (pg8000)")
             else:
                 # Используем SQLite локально
                 import sqlite3
                 self.connection = sqlite3.connect('bot_database.db')
+                self.db_type = 'sqlite'
                 print("✅ Подключено к SQLite (локально)")
                 
         except Exception as e:
@@ -33,7 +48,7 @@ class Database:
         try:
             cursor = self.connection.cursor()
             
-            if os.environ.get('DATABASE_URL'):
+            if self.db_type == 'postgresql':
                 # PostgreSQL
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS users (
@@ -69,7 +84,7 @@ class Database:
         try:
             cursor = self.connection.cursor()
             
-            if os.environ.get('DATABASE_URL'):
+            if self.db_type == 'postgresql':
                 # PostgreSQL
                 cursor.execute('''
                     INSERT INTO users (user_id, username, first_name, last_name) 
@@ -99,7 +114,7 @@ class Database:
         try:
             cursor = self.connection.cursor()
             
-            if os.environ.get('DATABASE_URL'):
+            if self.db_type == 'postgresql':
                 cursor.execute('UPDATE users SET subscribed = %s WHERE user_id = %s', (subscribed, user_id))
             else:
                 cursor.execute('UPDATE users SET subscribed = ? WHERE user_id = ?', (subscribed, user_id))
@@ -116,7 +131,7 @@ class Database:
         try:
             cursor = self.connection.cursor()
             
-            if os.environ.get('DATABASE_URL'):
+            if self.db_type == 'postgresql':
                 cursor.execute('SELECT * FROM users WHERE user_id = %s', (user_id,))
             else:
                 cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))

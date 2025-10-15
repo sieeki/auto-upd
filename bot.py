@@ -362,45 +362,60 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("❌ Сообщение не содержит текста")
         return
     
-    # Получаем всех пользователей
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM users')
-    users = cursor.fetchall()
-    conn.close()
+    # Получаем всех пользователей из базы
+    all_users = db.get_all_users()
+    total_users = len(all_users)
     
-    total_users = len(users)
+    if total_users == 0:
+        await update.message.reply_text("❌ В базе нет пользователей для рассылки")
+        del BROADCAST_STATE[user.id]
+        return
+    
     successful_sends = 0
     failed_sends = 0
+    failed_users = []
     
     # Отправляем сообщение о начале рассылки
     progress_msg = await update.message.reply_text(f"🔄 Начинаем рассылку для {total_users} пользователей...")
     
-    # Рассылаем сообщение
-    for user_tuple in users:
+    # Рассылаем сообщение ВСЕМ пользователям из базы
+    for user_tuple in all_users:
         user_id = user_tuple[0]
+        
+        # Пропускаем рассылку самому себе (админу)
+        if user_id == user.id:
+            successful_sends += 1
+            continue
+            
         try:
             await context.bot.send_message(
                 chat_id=user_id,
                 text=f"📢 Рассылка:\n\n{broadcast_text}"
             )
             successful_sends += 1
+            
         except Exception as e:
             failed_sends += 1
+            failed_users.append(user_id)
             logger.error(f"Failed to send to {user_id}: {e}")
     
     # Завершаем рассылку
     del BROADCAST_STATE[user.id]
     
+    # Формируем результат
     result_text = f"""
 ✅ Рассылка завершена!
 
 📊 Результаты:
-👥 Всего пользователей: {total_users}
+👥 Всего пользователей в базе: {total_users}
 ✅ Успешно отправлено: {successful_sends}
 ❌ Не удалось отправить: {failed_sends}
 📈 Успех: {round((successful_sends / total_users * 100) if total_users > 0 else 0, 1)}%
-    """
+"""
+    
+    # Добавляем информацию о неудачных отправках
+    if failed_sends > 0:
+        result_text += f"\n❌ Не удалось отправить {failed_sends} пользователям"
     
     await progress_msg.edit_text(result_text)
 

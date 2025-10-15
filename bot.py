@@ -483,7 +483,43 @@ async def admin_broadcast_button(update: Update, context: ContextTypes.DEFAULT_T
         "📢 Режим рассылки активирован. Отправьте сообщение для рассылки всем пользователям.\n\n"
         "❌ Для отмены нажмите кнопку ниже",
         reply_markup=reply_markup
-    )
+    }
+    
+async def debug_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для отладки - показывает всех пользователей в базе"""
+    user = update.effective_user
+    
+    if not is_admin(user.id):
+        await update.message.reply_text("❌ У вас нет доступа к этой команде")
+        return
+    
+    # Получаем всех пользователей из базы
+    all_users = db.get_all_users()
+    user_count = db.get_user_count()
+    
+    debug_text = f"""
+🔧 Отладочная информация:
+
+👥 Всего пользователей в базе: {user_count}
+📋 Список пользователей:
+"""
+    
+    # Получаем подробную информацию о каждом пользователе
+    conn = sqlite3.connect('bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id, username, first_name, subscribed FROM users')
+    detailed_users = cursor.fetchall()
+    conn.close()
+    
+    for user_data in detailed_users:
+        user_id, username, first_name, subscribed = user_data
+        status = "✅" if subscribed else "❌"
+        username_display = f"@{username}" if username else "без username"
+        name_display = first_name or "без имени"
+        
+        debug_text += f"{status} {name_display} ({username_display}) - ID: {user_id}\n"
+    
+    await update.message.reply_text(debug_text)
 
 def setup_handlers(application):
     """Настройка обработчиков для бота"""
@@ -493,6 +529,7 @@ def setup_handlers(application):
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CommandHandler("cancel", cancel_broadcast))
+    application.add_handler(CommandHandler("debug", debug_users))  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
     
     # Обработчики callback кнопок
     application.add_handler(CallbackQueryHandler(check_subscription, pattern="^check_subscription$"))

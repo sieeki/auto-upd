@@ -1,7 +1,8 @@
-import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+from config import BOT_TOKEN, MESSAGES, BUTTONS
 
 # Настройка логирования
 logging.basicConfig(
@@ -10,19 +11,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Токен бота из переменных окружения
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     keyboard = [
-        [InlineKeyboardButton("get server", callback_data="get_server")]
+        [InlineKeyboardButton(BUTTONS['get_server'], callback_data="get_server")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    welcome_text = "Добро пожаловать!\nв данном боте ты можешь генерировать ссылки на приватный сервер!"
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    await update.message.reply_text(MESSAGES['welcome'], reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик нажатий на кнопки"""
@@ -30,14 +26,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     if query.data == "get_server":
-        await query.edit_message_text(text="тест")
+        await query.edit_message_text(text=MESSAGES['test'])
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Exception while handling an update: {context.error}")
 
 def main():
     """Основная функция запуска бота"""
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN не установлен!")
-        return
-    
     # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -45,9 +41,13 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
+    # Добавляем обработчик ошибок
+    application.add_error_handler(error_handler)
+    
     # Запускаем бота
     logger.info("Бот запущен...")
-    application.run_polling()
+    print("Bot is running and waiting for messages...")
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()

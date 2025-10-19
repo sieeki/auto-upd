@@ -1,25 +1,16 @@
 import os
-from dotenv import load_dotenv
-
-# Загружаем переменные окружения из .env файла
-load_dotenv()
 
 # Настройки бота
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8360956853:AAHAIotfoDmlwepaQZUroDWhMhjo_CgPwHE')
 
-# Проверка обязательных переменных
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN не найден в переменных окружения!")
+# Проверка токена
+if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+    raise ValueError("Пожалуйста, установите BOT_TOKEN в переменных окружения!")
 
-# Другие настройки
-ADMIN_IDS = [123456789]  # Замените на ваш ID
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
-
-# Текстовые сообщения бота
+# Текстовые сообщения
 MESSAGES = {
     'welcome': "Добро пожаловать!\nв данном боте ты можешь генерировать ссылки на приватный сервер!",
-    'test': "тест",
-    'error': "Произошла ошибка. Попробуйте позже."
+    'test': "тест"
 }
 
 # Настройки кнопок

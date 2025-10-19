@@ -1,20 +1,26 @@
 import os
-import telegram
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
+import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
 
 TOKEN = os.getenv('BOT_TOKEN')
 
-def start(update, context):
-    keyboard = [[telegram.InlineKeyboardButton("get server", callback_data="get_server")]]
-    reply_markup = telegram.InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("Добро пожаловать!\nв данном боте ты можешь генерировать ссылки на приватный сервер!", reply_markup=reply_markup)
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-def button(update, context):
-    update.callback_query.answer()
-    update.callback_query.edit_message_text(text="тест")
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="get server", callback_data="get_server")]
+    ])
+    await message.answer("Добро пожаловать!\nв данном боте ты можешь генерировать ссылки на приватный сервер!", reply_markup=keyboard)
 
-updater = Updater(TOKEN)
-updater.dispatcher.add_handler(CommandHandler('start', start))
-updater.dispatcher.add_handler(CallbackQueryHandler(button))
-updater.start_polling()
-updater.idle()
+@dp.callback_query(lambda call: call.data == "get_server")
+async def button(call: types.CallbackQuery):
+    await call.message.edit_text("тест")
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())

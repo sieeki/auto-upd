@@ -10,8 +10,8 @@ from aiohttp import web
 import threading
 
 TOKEN = os.getenv('BOT_TOKEN')
-CHANNEL = "@dijitrail"  # Замени на username своего канала
-ADMIN_IDS = [7683939912]  # Замени на свой ID
+CHANNEL = "@your_channel"  # Замени на username своего канала
+ADMIN_IDS = [123456789]  # Замени на свой ID
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()

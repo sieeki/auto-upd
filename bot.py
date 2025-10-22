@@ -10,8 +10,8 @@ from aiohttp import web
 import threading
 
 TOKEN = os.getenv('BOT_TOKEN')
-CHANNEL = "@your_channel"  # Замени на username своего канала
-ADMIN_IDS = [123456789]  # Замени на свой ID
+CHANNEL = "@dijitrail"
+ADMIN_IDS = [7683939912]
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -34,7 +34,7 @@ def init_db():
     
     c.execute('''CREATE TABLE IF NOT EXISTS admin_logs
                  (admin_id INTEGER, action TEXT, target_id INTEGER, 
-                 amount INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+                 amount INTEGER, reason TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
 
@@ -79,6 +79,13 @@ def update_balance(user_id: int, amount: int):
     conn.commit()
     conn.close()
 
+def clear_balance(user_id: int):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = 0 WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
 def get_all_users():
     conn = get_connection()
     c = conn.cursor()
@@ -87,11 +94,11 @@ def get_all_users():
     conn.close()
     return users
 
-def add_admin_log(admin_id: int, action: str, target_id: int = None, amount: int = None):
+def add_admin_log(admin_id: int, action: str, target_id: int = None, amount: int = None, reason: str = None):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO admin_logs (admin_id, action, target_id, amount) VALUES (?, ?, ?, ?)",
-             (admin_id, action, target_id, amount))
+    c.execute("INSERT INTO admin_logs (admin_id, action, target_id, amount, reason) VALUES (?, ?, ?, ?, ?)",
+             (admin_id, action, target_id, amount, reason))
     conn.commit()
     conn.close()
 
@@ -121,26 +128,7 @@ async def start(message: types.Message):
     add_user(user_id, username, referrer_id)
     
     if await check_subscription(user_id):
-        referrals_count, balance = get_user_data(user_id)
-        ref_link = f"https://t.me/{(await bot.get_me()).username}?start={user_id}"
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🖥️ Получить сервер", callback_data="get_server")],
-            [InlineKeyboardButton(text="👥 Рефералы", callback_data="referrals")],
-            [InlineKeyboardButton(text="🛒 Покупка робуксов", callback_data="buy_robux")],
-            [InlineKeyboardButton(text="📢 Наш канал", url=f"https://t.me/{CHANNEL[1:]}")]
-        ])
-        
-        text = f"""<b>Добро пожаловать!</b>
-
-✅ Ты подписан на канал!
-👥 Приглашено друзей: <b>{referrals_count}</b>
-💰 Баланс: <b>{balance} реф.</b>
-🔗 Твоя реф ссылка: <code>{ref_link}</code>
-
-1 друг = 1 реф. = 1 робукс!"""
-        
-        await message.answer(text, reply_markup=keyboard)
+        await show_main_menu(message, user_id)
     else:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Подписаться на канал", url=f"https://t.me/{CHANNEL[1:]}")],
@@ -148,6 +136,34 @@ async def start(message: types.Message):
         ])
         
         await message.answer("❌ <b>Сначала подпишись на наш канал!</b>", reply_markup=keyboard)
+
+async def show_main_menu(message, user_id: int = None):
+    if not user_id:
+        user_id = message.from_user.id
+    
+    referrals_count, balance = get_user_data(user_id)
+    ref_link = f"https://t.me/{(await bot.get_me()).username}?start={user_id}"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🖥️ Получить сервер", callback_data="get_server")],
+        [InlineKeyboardButton(text="👥 Рефералы", callback_data="referrals")],
+        [InlineKeyboardButton(text="🛒 Покупка робуксов", callback_data="buy_robux")],
+        [InlineKeyboardButton(text="📢 Наш канал", url=f"https://t.me/{CHANNEL[1:]}")]
+    ])
+    
+    text = f"""<b>Добро пожаловать!</b>
+
+✅ Ты подписан на канал!
+👥 Приглашено друзей: <b>{referrals_count}</b>
+💰 Баланс: <b>{balance} реф.</b>
+🔗 Твоя реф ссылка: <code>{ref_link}</code>
+
+1 друг = 1 реф. = 1 робукс!"""
+    
+    if isinstance(message, types.CallbackQuery):
+        await message.message.edit_text(text, reply_markup=keyboard)
+    else:
+        await message.answer(text, reply_markup=keyboard)
 
 # Админ команды
 @dp.message(Command("admin"))
@@ -158,8 +174,10 @@ async def admin_panel(message: types.Message):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💰 Выдать баланс", callback_data="admin_add_balance")],
+        [InlineKeyboardButton(text="🗑️ Очистить баланс", callback_data="admin_clear_balance")],
         [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")]
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="◀️ Выйти из админки", callback_data="back_to_main")]
     ])
     
     await message.answer("🛠️ <b>Панель администратора</b>", reply_markup=keyboard)
@@ -188,7 +206,11 @@ async def admin_stats(call: types.CallbackQuery):
 💰 Общий баланс: <b>{total_balance}</b>
 👥 Всего рефералов: <b>{total_referrals}</b>"""
     
-    await call.message.edit_text(text)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад в админку", callback_data="back_to_admin")]
+    ])
+    
+    await call.message.edit_text(text, reply_markup=keyboard)
 
 @dp.callback_query(F.data == "admin_add_balance")
 async def admin_add_balance_menu(call: types.CallbackQuery):
@@ -196,11 +218,36 @@ async def admin_add_balance_menu(call: types.CallbackQuery):
         await call.answer("❌ Доступ запрещен!")
         return
     
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад в админку", callback_data="back_to_admin")]
+    ])
+    
     await call.message.edit_text(
         "💰 <b>Выдача баланса</b>\n\n"
         "Отправь сообщение в формате:\n"
         "<code>/add_balance user_id amount</code>\n\n"
-        "Пример: <code>/add_balance 123456789 100</code>"
+        "Пример: <code>/add_balance 123456789 100</code>\n\n"
+        "<i>Баланс будет добавлен к текущему</i>",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(F.data == "admin_clear_balance")
+async def admin_clear_balance_menu(call: types.CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Доступ запрещен!")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад в админку", callback_data="back_to_admin")]
+    ])
+    
+    await call.message.edit_text(
+        "🗑️ <b>Очистка баланса</b>\n\n"
+        "Отправь сообщение в формате:\n"
+        "<code>/clear user_id причина</code>\n\n"
+        "Пример: <code>/clear 123456789 Нарушение правил</code>\n\n"
+        "<i>Причина будет отправлена пользователю</i>",
+        reply_markup=keyboard
     )
 
 @dp.message(Command("add_balance"))
@@ -210,7 +257,7 @@ async def add_balance_command(message: types.Message):
     
     try:
         parts = message.text.split()
-        if len(parts) != 3:
+        if len(parts) < 3:
             await message.answer("❌ Неправильный формат!\nИспользуй: /add_balance user_id amount")
             return
         
@@ -230,6 +277,35 @@ async def add_balance_command(message: types.Message):
             
     except ValueError:
         await message.answer("❌ Ошибка! user_id и amount должны быть числами")
+
+@dp.message(Command("clear"))
+async def clear_balance_command(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+    
+    try:
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 3:
+            await message.answer("❌ Неправильный формат!\nИспользуй: /clear user_id причина")
+            return
+        
+        target_id = int(parts[1])
+        reason = parts[2]
+        
+        old_balance = get_user_data(target_id)[1]
+        clear_balance(target_id)
+        add_admin_log(message.from_user.id, "clear_balance", target_id, -old_balance, reason)
+        
+        await message.answer(f"✅ Баланс пользователя {target_id} очищен (было: {old_balance} реф.)\nПричина: {reason}")
+        
+        # Уведомляем пользователя
+        try:
+            await bot.send_message(target_id, f"⚠️ <b>Ваш баланс очищен администратором!</b>\n\nПричина: {reason}\nБыло списано: {old_balance} реф.")
+        except:
+            pass
+            
+    except ValueError:
+        await message.answer("❌ Ошибка! user_id должен быть числом")
 
 @dp.message(Command("broadcast"))
 async def broadcast_command(message: types.Message):
@@ -270,7 +346,7 @@ async def broadcast_command(message: types.Message):
             success += 1
         except:
             failed += 1
-        await asyncio.sleep(0.05)  # Защита от лимитов
+        await asyncio.sleep(0.05)
     
     add_admin_log(message.from_user.id, "broadcast", None, len(users))
     await message.answer(f"✅ Рассылка завершена!\nУспешно: {success}\nНе удалось: {failed}")
@@ -324,7 +400,10 @@ async def broadcast_photo_command(message: types.Message):
 async def get_server(call: types.CallbackQuery):
     if await check_subscription(call.from_user.id):
         await call.answer()
-        await call.message.edit_text("🖥️ <b>Твой приватный сервер:</b>\n<code>test-server.com</code>")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+        ])
+        await call.message.edit_text("🖥️ <b>Твой приватный сервер:</b>\n<code>test-server.com</code>", reply_markup=keyboard)
     else:
         await call.answer("❌ Сначала подпишись на канал!", show_alert=True)
 
@@ -335,6 +414,10 @@ async def show_referrals(call: types.CallbackQuery):
     
     await call.answer()
     
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
+    ])
+    
     text = f"""<b>👥 Твоя реферальная статистика</b>
 
 🔗 Твоя ссылка: <code>{ref_link}</code>
@@ -343,7 +426,7 @@ async def show_referrals(call: types.CallbackQuery):
 
 1 друг = 1 реф. = 1 робукс!"""
     
-    await call.message.edit_text(text)
+    await call.message.edit_text(text, reply_markup=keyboard)
 
 @dp.callback_query(F.data == "buy_robux")
 async def buy_robux(call: types.CallbackQuery):
@@ -351,7 +434,6 @@ async def buy_robux(call: types.CallbackQuery):
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Тестовый робукс (1 реф.)", callback_data="buy_test_robux")],
-        [InlineKeyboardButton(text="👥 Мои рефералы", callback_data="referrals")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")]
     ])
     
@@ -371,55 +453,38 @@ async def buy_test_robux(call: types.CallbackQuery):
     if balance >= 1:
         update_balance(call.from_user.id, -1)
         await call.answer("✅ Успешная покупка!", show_alert=True)
-        await call.message.edit_text("🎉 <b>Ты купил тестовый робукс!</b>\n\nВот твой код: <code>TEST-ROBUX-123</code>")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Назад в магазин", callback_data="buy_robux")]
+        ])
+        await call.message.edit_text("🎉 <b>Ты купил тестовый робукс!</b>\n\nВот твой код: <code>TEST-ROBUX-123</code>", reply_markup=keyboard)
     else:
         await call.answer("❌ Недостаточно рефералов!", show_alert=True)
 
+# Навигационные кнопки
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main(call: types.CallbackQuery):
-    referrals_count, balance = get_user_data(call.from_user.id)
-    ref_link = f"https://t.me/{(await bot.get_me()).username}?start={call.from_user.id}"
+    await show_main_menu(call, call.from_user.id)
+
+@dp.callback_query(F.data == "back_to_admin")
+async def back_to_admin(call: types.CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Доступ запрещен!")
+        return
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🖥️ Получить сервер", callback_data="get_server")],
-        [InlineKeyboardButton(text="👥 Рефералы", callback_data="referrals")],
-        [InlineKeyboardButton(text="🛒 Покупка робуксов", callback_data="buy_robux")],
-        [InlineKeyboardButton(text="📢 Наш канал", url=f"https://t.me/{CHANNEL[1:]}")]
+        [InlineKeyboardButton(text="💰 Выдать баланс", callback_data="admin_add_balance")],
+        [InlineKeyboardButton(text="🗑️ Очистить баланс", callback_data="admin_clear_balance")],
+        [InlineKeyboardButton(text="📢 Сделать рассылку", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="◀️ Выйти из админки", callback_data="back_to_main")]
     ])
     
-    text = f"""<b>Главное меню</b>
-
-✅ Ты подписан на канал!
-👥 Приглашено друзей: <b>{referrals_count}</b>
-💰 Баланс: <b>{balance} реф.</b>
-🔗 Твоя реф ссылка: <code>{ref_link}</code>
-
-1 друг = 1 реф. = 1 робукс!"""
-    
-    await call.message.edit_text(text, reply_markup=keyboard)
+    await call.message.edit_text("🛠️ <b>Панель администратора</b>", reply_markup=keyboard)
 
 @dp.callback_query(F.data == "check_sub")
 async def check_subscription_callback(call: types.CallbackQuery):
     if await check_subscription(call.from_user.id):
-        referrals_count, balance = get_user_data(call.from_user.id)
-        ref_link = f"https://t.me/{(await bot.get_me()).username}?start={call.from_user.id}"
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🖥️ Получить сервер", callback_data="get_server")],
-            [InlineKeyboardButton(text="👥 Рефералы", callback_data="referrals")],
-            [InlineKeyboardButton(text="🛒 Покупка робуксов", callback_data="buy_robux")]
-        ])
-        
-        text = f"""<b>Отлично! ✅</b>
-
-Теперь ты подписан на канал!
-👥 Приглашено друзей: <b>{referrals_count}</b>
-💰 Баланс: <b>{balance} реф.</b>
-🔗 Твоя реф ссылка: <code>{ref_link}</code>
-
-1 друг = 1 реф. = 1 робукс!"""
-        
-        await call.message.edit_text(text, reply_markup=keyboard)
+        await show_main_menu(call, call.from_user.id)
     else:
         await call.answer("❌ Ты еще не подписался на канал!", show_alert=True)
 
@@ -439,6 +504,8 @@ async def main():
     web_thread.start()
     
     print("🤖 Бот запущен и работает!")
+    print(f"👑 Админ ID: {ADMIN_IDS[0]}")
+    print(f"📢 Канал: {CHANNEL}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

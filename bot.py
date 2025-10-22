@@ -1,6 +1,6 @@
 import os
+import sqlite3
 import asyncio
-import psycopg2
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -10,31 +10,30 @@ from aiohttp import web
 import threading
 
 TOKEN = os.getenv('BOT_TOKEN')
-CHANNEL = "@dijitrail"
-DATABASE_URL = os.getenv('DATABASE_URL')
+CHANNEL = "@dijitrail"  # Замени на username своего канала
 ADMIN_IDS = [7683939912]  # Замени на свой ID
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# Подключение к PostgreSQL
+# База данных SQLite
 def get_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return sqlite3.connect('bot.db', check_same_thread=False)
 
 def init_db():
     conn = get_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (user_id BIGINT PRIMARY KEY, username TEXT, referrer_id BIGINT, 
+                 (user_id INTEGER PRIMARY KEY, username TEXT, referrer_id INTEGER, 
                  referrals INTEGER DEFAULT 0, balance INTEGER DEFAULT 0, 
                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS referral_links
-                 (referrer_id BIGINT, referred_id BIGINT, 
+                 (referrer_id INTEGER, referred_id INTEGER, 
                  UNIQUE(referrer_id, referred_id))''')
     
     c.execute('''CREATE TABLE IF NOT EXISTS admin_logs
-                 (admin_id BIGINT, action TEXT, target_id BIGINT, 
+                 (admin_id INTEGER, action TEXT, target_id INTEGER, 
                  amount INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
@@ -45,21 +44,21 @@ def add_user(user_id: int, username: str, referrer_id: int = None):
     conn = get_connection()
     c = conn.cursor()
     
-    c.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+    c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     existing_user = c.fetchone()
     
     if not existing_user:
-        c.execute("INSERT INTO users (user_id, username, referrer_id, balance) VALUES (%s, %s, %s, %s)", 
+        c.execute("INSERT INTO users (user_id, username, referrer_id, balance) VALUES (?, ?, ?, ?)", 
                  (user_id, username, referrer_id, 0))
         
         # Защита от повторных рефералов
         if referrer_id and referrer_id != user_id:
-            c.execute("SELECT * FROM referral_links WHERE referrer_id = %s AND referred_id = %s", 
+            c.execute("SELECT * FROM referral_links WHERE referrer_id = ? AND referred_id = ?", 
                      (referrer_id, user_id))
             if not c.fetchone():
-                c.execute("INSERT INTO referral_links (referrer_id, referred_id) VALUES (%s, %s)", 
+                c.execute("INSERT INTO referral_links (referrer_id, referred_id) VALUES (?, ?)", 
                          (referrer_id, user_id))
-                c.execute("UPDATE users SET referrals = referrals + 1, balance = balance + 1 WHERE user_id = %s", 
+                c.execute("UPDATE users SET referrals = referrals + 1, balance = balance + 1 WHERE user_id = ?", 
                          (referrer_id,))
     
     conn.commit()
@@ -68,7 +67,7 @@ def add_user(user_id: int, username: str, referrer_id: int = None):
 def get_user_data(user_id: int):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT referrals, balance FROM users WHERE user_id = %s", (user_id,))
+    c.execute("SELECT referrals, balance FROM users WHERE user_id = ?", (user_id,))
     result = c.fetchone()
     conn.close()
     return result if result else (0, 0)
@@ -76,7 +75,7 @@ def get_user_data(user_id: int):
 def update_balance(user_id: int, amount: int):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("UPDATE users SET balance = balance + %s WHERE user_id = %s", (amount, user_id))
+    c.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
     conn.commit()
     conn.close()
 
@@ -91,7 +90,7 @@ def get_all_users():
 def add_admin_log(admin_id: int, action: str, target_id: int = None, amount: int = None):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO admin_logs (admin_id, action, target_id, amount) VALUES (%s, %s, %s, %s)",
+    c.execute("INSERT INTO admin_logs (admin_id, action, target_id, amount) VALUES (?, ?, ?, ?)",
              (admin_id, action, target_id, amount))
     conn.commit()
     conn.close()
@@ -232,23 +231,6 @@ async def add_balance_command(message: types.Message):
     except ValueError:
         await message.answer("❌ Ошибка! user_id и amount должны быть числами")
 
-@dp.callback_query(F.data == "admin_broadcast")
-async def admin_broadcast_menu(call: types.CallbackQuery):
-    if not is_admin(call.from_user.id):
-        await call.answer("❌ Доступ запрещен!")
-        return
-    
-    await call.message.edit_text(
-        "📢 <b>Рассылка сообщений</b>\n\n"
-        "Отправь сообщение для рассылки в формате:\n"
-        "<code>/broadcast текст_сообщения</code>\n\n"
-        "Для рассылки с фото:\n"
-        "<code>/broadcast_photo текст_сообщения</code>\n"
-        "И прикрепи фото к сообщению\n\n"
-        "Чтобы добавить кнопку, используй:\n"
-        "<code>/broadcast текст | текст_кнопки | url_кнопки</code>"
-    )
-
 @dp.message(Command("broadcast"))
 async def broadcast_command(message: types.Message):
     if not is_admin(message.from_user.id):
@@ -337,7 +319,7 @@ async def broadcast_photo_command(message: types.Message):
     add_admin_log(message.from_user.id, "broadcast_photo", None, len(users))
     await message.answer(f"✅ Рассылка фото завершена!\nУспешно: {success}\nНе удалось: {failed}")
 
-# Остальные обработчики (get_server, referrals, buy_robux и т.д.) остаются без изменений
+# Остальные обработчики
 @dp.callback_query(F.data == "get_server")
 async def get_server(call: types.CallbackQuery):
     if await check_subscription(call.from_user.id):
@@ -452,6 +434,7 @@ def run_web_server():
     web.run_app(app, host='0.0.0.0', port=port)
 
 async def main():
+    # Запускаем веб-сервер в отдельном потоке
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
